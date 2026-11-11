@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+:root {
+  --background: #F4F6F8;
+  --foreground: #101416;
+  --card-bg: #FFFFFF;
+  --card-border: #DDE2E5;
+  --card-hover: #EEF2F5;
+  --muted-text: #606F7B;
+  --accent-lime: #76A305;
+  --accent-lime-hover: #638A04;
+  --accent-lime-glow: rgba(118, 163, 5, 0.15);
+  --danger: #DC2626;
+  --warning: #D97706;
+  --success: #16A34A;
+}
+
+[data-theme='dark'] {
+  --background: #0D1113;
+  --foreground: #F2F5F8;
+  --card-bg: #141A1D;
+  --card-border: #222C31;
+  --card-hover: #1A2227;
+  --muted-text: #8E9EA7;
+  --accent-lime: #CCFF00;
+  --accent-lime-hover: #B5E600;
+  --accent-lime-glow: rgba(204, 255, 0, 0.18);
+  --danger: #EF4444;
+  --warning: #F59E0B;
+  --success: #22C55E;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* Accessible focus ring */
+*:focus-visible {
+  outline: 2px solid var(--accent-lime);
+  outline-offset: 2px;
+}
+
+/* Touch friendly minimums */
+button, a, input, select {
+  touch-action: manipulation;
+}
