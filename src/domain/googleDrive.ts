@@ -4,6 +4,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { exportDatabaseToJson, importDatabaseFromJson } from './portability';
 
 // Google Drive configuration constants & storage keys
+export const DEFAULT_GOOGLE_CLIENT_ID = '526057502552-br68tlqvvd7g76g7mo266eo6asohnjb5.apps.googleusercontent.com';
 const GOOGLE_CLIENT_ID_STORAGE_KEY = 'liftforge_gdrive_client_id';
 const GOOGLE_ACCESS_TOKEN_STORAGE_KEY = 'liftforge_gdrive_token';
 const GOOGLE_TOKEN_EXPIRY_KEY = 'liftforge_gdrive_token_expiry';
@@ -17,8 +18,8 @@ export interface GoogleDriveFile {
 }
 
 export function getStoredGoogleClientId(): string {
-  if (typeof window === 'undefined') return '';
-  return localStorage.getItem(GOOGLE_CLIENT_ID_STORAGE_KEY) || '';
+  if (typeof window === 'undefined') return DEFAULT_GOOGLE_CLIENT_ID;
+  return localStorage.getItem(GOOGLE_CLIENT_ID_STORAGE_KEY) || DEFAULT_GOOGLE_CLIENT_ID;
 }
 
 export function saveGoogleClientId(clientId: string): void {

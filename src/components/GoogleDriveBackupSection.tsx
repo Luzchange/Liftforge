@@ -24,6 +24,7 @@ import {
   saveGoogleClientId,
   getStoredGoogleUser,
   disconnectGoogleDrive,
+  DEFAULT_GOOGLE_CLIENT_ID,
   GoogleDriveFile,
 } from '@/domain/googleDrive';
 
@@ -77,15 +78,10 @@ export function GoogleDriveBackupSection({
 
   // 2. Direct Cloud Upload via Google Drive REST API
   const handleCloudUpload = async () => {
-    if (!clientId && !getStoredGoogleClientId()) {
-      setShowConfig(true);
-      onErrorNotification('Please configure your Google Cloud OAuth Client ID first.');
-      return;
-    }
-
     try {
       setIsProcessing(true);
-      const result = await uploadBackupToGoogleDrive(clientId);
+      const activeId = clientId || getStoredGoogleClientId();
+      const result = await uploadBackupToGoogleDrive(activeId);
       setUser(getStoredGoogleUser());
       onSuccessNotification(`Successfully backed up to Google Drive (${result.fileName})`);
       // Refresh backup list
@@ -297,7 +293,7 @@ export function GoogleDriveBackupSection({
         {showConfig && (
           <div className="mt-2.5 p-3 rounded-xl bg-[var(--background)] border border-[var(--card-border)] space-y-2.5 text-xs">
             <p className="text-[11px] text-[var(--muted-text)] leading-relaxed">
-              LiftForge uses a zero-cloud, direct-to-Google architecture. To connect directly via the Google Drive REST API, enter your Google Cloud OAuth 2.0 Web Client ID below.
+              LiftForge connects directly from your browser to Google Drive using your OAuth Client ID. The default client ID is already pre-configured:
             </p>
             <div>
               <label className="text-[11px] font-semibold text-[var(--foreground)] block mb-1">
@@ -307,25 +303,27 @@ export function GoogleDriveBackupSection({
                 type="text"
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
-                placeholder="123456789-abcdef.apps.googleusercontent.com"
+                placeholder={DEFAULT_GOOGLE_CLIENT_ID}
                 className="w-full bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg p-2 text-xs font-mono text-[var(--foreground)]"
               />
             </div>
             <div className="flex items-center justify-between pt-1">
-              <a
-                href="https://console.cloud.google.com/apis/credentials"
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] text-sky-400 hover:underline flex items-center gap-1"
+              <button
+                type="button"
+                onClick={() => {
+                  setClientId(DEFAULT_GOOGLE_CLIENT_ID);
+                  saveGoogleClientId(DEFAULT_GOOGLE_CLIENT_ID);
+                  onSuccessNotification('Reset to default Client ID');
+                }}
+                className="text-[11px] text-[var(--muted-text)] hover:text-[var(--accent-lime)] underline"
               >
-                Google Cloud Console
-                <ExternalLink className="w-3 h-3" />
-              </a>
+                Reset Default
+              </button>
               <button
                 onClick={handleSaveClientId}
                 className="px-3 py-1.5 bg-[var(--accent-lime)] text-black font-bold text-xs rounded-lg hover:opacity-90"
               >
-                Save Key
+                Save Custom Key
               </button>
             </div>
           </div>
