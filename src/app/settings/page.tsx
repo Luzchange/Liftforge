@@ -8,6 +8,7 @@ import { seedDemoData } from '@/domain/demoData';
 import { clearDemoData, resetAllWorkoutData } from '@/domain/db';
 import { DEFAULT_PLATES_KG, DEFAULT_PLATES_LB } from '@/domain/plates';
 import { WorkoutBuilder } from '@/components/WorkoutBuilder';
+import { GoogleDriveBackupSection } from '@/components/GoogleDriveBackupSection';
 import {
   Download,
   Upload,
@@ -322,6 +323,15 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Google Drive Cloud Backup */}
+      <GoogleDriveBackupSection
+        onSuccessNotification={(msg) => showNotification('success', msg)}
+        onErrorNotification={(msg) => showNotification('error', msg)}
+        onDataRestored={async () => {
+          await reloadSettings();
+        }}
+      />
 
       {/* Export, Import & Backups */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-4 space-y-3">
