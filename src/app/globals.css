@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 :root {
   --background: #F4F6F8;
   --foreground: #101416;

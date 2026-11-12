@@ -3,7 +3,7 @@
 import React, { useRef, useState } from 'react';
 import { useSettings } from '@/context/SettingsContext';
 import { WeightUnit, ExerciseId } from '@/domain/types';
-import { exportDatabaseToJson, importDatabaseFromJson, exportSetsToCsv } from '@/domain/portability';
+import { exportDatabaseToJson, importDatabaseFromJson, exportSetsToCsv, convertAllHistoricalUnits } from '@/domain/portability';
 import { seedDemoData } from '@/domain/demoData';
 import { clearDemoData, resetAllWorkoutData } from '@/domain/db';
 import { DEFAULT_PLATES_KG, DEFAULT_PLATES_LB } from '@/domain/plates';
@@ -45,7 +45,10 @@ export default function SettingsPage() {
   };
 
   const handleUnitToggle = async (newUnit: WeightUnit) => {
+    if (newUnit === settings.units) return;
     const isKg = newUnit === 'kg';
+    setIsProcessing(true);
+    await convertAllHistoricalUnits(newUnit);
     await updateSettings({
       units: newUnit,
       barWeight: isKg ? 20 : 45,
@@ -57,8 +60,16 @@ export default function SettingsPage() {
         ohp: isKg ? 2.5 : 5,
         deadlift: isKg ? 5 : 10,
       },
+      startingWeights: {
+        squat: isKg ? Math.round(settings.startingWeights.squat / 2.2) : Math.round(settings.startingWeights.squat * 2.2),
+        bench: isKg ? Math.round(settings.startingWeights.bench / 2.2) : Math.round(settings.startingWeights.bench * 2.2),
+        row: isKg ? Math.round(settings.startingWeights.row / 2.2) : Math.round(settings.startingWeights.row * 2.2),
+        ohp: isKg ? Math.round(settings.startingWeights.ohp / 2.2) : Math.round(settings.startingWeights.ohp * 2.2),
+        deadlift: isKg ? Math.round(settings.startingWeights.deadlift / 2.2) : Math.round(settings.startingWeights.deadlift * 2.2),
+      },
     });
-    showNotification('success', `Units switched to ${newUnit.toUpperCase()}. Historical logs preserved.`);
+    setIsProcessing(false);
+    showNotification('success', `Units converted to ${newUnit.toUpperCase()}. Historical logs accurately recalculated.`);
   };
 
   const handleExportJson = async () => {

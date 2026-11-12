@@ -14,7 +14,7 @@ export default defineConfig({
     viewport: { width: 390, height: 844 }, // Mobile-first viewport (iPhone 14)
   },
   webServer: {
-    command: 'npm run start',
+    command: 'npx serve@latest out -p 3000',
     port: 3000,
     reuseExistingServer: true,
     timeout: 30000,

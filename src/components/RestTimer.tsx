@@ -33,6 +33,13 @@ export function RestTimer({
       setSecondsRemaining(diff);
 
       if (diff === 0) {
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try {
+            navigator.vibrate([200, 100, 200]);
+          } catch {
+            // Vibrate fallback
+          }
+        }
         if (soundEnabled && typeof window !== 'undefined') {
           try {
             const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
@@ -78,12 +85,12 @@ export function RestTimer({
     }
   };
 
-  const handleAdd30 = () => {
+  const handleAdd15 = () => {
     const currentRemain = isPaused ? secondsRemaining : Math.max(0, Math.ceil(((endTimestamp || 0) - Date.now()) / 1000));
-    const newRemain = currentRemain + 30;
+    const newRemain = currentRemain + 15;
     setSecondsRemaining(newRemain);
     if (!isPaused) {
-      onUpdateTimer(Date.now() + newRemain * 1000, durationSeconds + 30);
+      onUpdateTimer(Date.now() + newRemain * 1000, durationSeconds + 15);
     }
   };
 
@@ -114,12 +121,12 @@ export function RestTimer({
 
         <div className="flex items-center gap-2">
           <button
-            onClick={handleAdd30}
+            onClick={handleAdd15}
             className="flex items-center gap-1 bg-[var(--background)] border border-[var(--card-border)] px-3 py-2 rounded-xl text-xs font-bold font-mono text-[var(--foreground)] hover:border-[var(--accent-lime)] min-h-[44px]"
-            aria-label="Add 30 seconds"
+            aria-label="Add 15 seconds"
           >
             <Plus className="w-3.5 h-3.5" />
-            30s
+            15s
           </button>
 
           <button

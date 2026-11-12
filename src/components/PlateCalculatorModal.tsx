@@ -56,37 +56,60 @@ export function PlateCalculatorModal({
           </div>
         </div>
 
-        <div>
-          <div className="text-xs font-semibold text-[var(--muted-text)] uppercase tracking-wider mb-3">
-            Plates Per Side (Load onto each sleeve)
+        {/* Barbell Diagram Visualization */}
+        <div className="bg-[var(--background)] p-4 rounded-2xl border border-[var(--card-border)] overflow-x-auto">
+          <div className="text-[11px] font-bold text-[var(--muted-text)] uppercase tracking-wider mb-3 text-center">
+            Barbell Sleeve Diagram (Per Side)
           </div>
-
-          {result.platesPerSide.length === 0 ? (
-            <div className="p-4 text-center rounded-xl border border-[var(--card-border)] text-sm text-[var(--muted-text)]">
-              Empty Barbell only (no plates needed).
+          <div className="flex items-center justify-center min-w-[280px] h-28 relative">
+            {/* Collar / Shaft */}
+            <div className="w-12 h-4 bg-zinc-600 rounded-l-md relative flex items-center justify-end pr-1">
+              <span className="text-[9px] text-zinc-300 font-mono font-bold">Bar</span>
             </div>
-          ) : (
-            <div className="space-y-2">
-              {result.platesPerSide.map(({ plate, count }) => (
-                <div
-                  key={plate}
-                  className="flex items-center justify-between p-3 bg-[var(--background)] rounded-xl border border-[var(--card-border)]"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-[var(--card-bg)] border border-[var(--accent-lime)]/40 flex items-center justify-center font-bold text-sm text-[var(--foreground)] font-mono">
-                      {plate}
-                    </div>
-                    <div>
-                      <span className="font-bold text-sm text-[var(--foreground)]">{plate} {unit} plate</span>
-                    </div>
-                  </div>
-                  <div className="font-mono font-bold text-base bg-[var(--accent-lime)] text-black px-3 py-1 rounded-md">
-                    x{count}
-                  </div>
+            {/* Barbell Sleeve Collar ring */}
+            <div className="w-4 h-16 bg-zinc-400 rounded-xs border border-zinc-500 shadow-sm" />
+            
+            {/* Plates loaded on sleeve */}
+            <div className="flex items-center gap-1 pl-1 pr-3 bg-zinc-800/40 py-2 border-y-2 border-zinc-700 min-h-[70px]">
+              {result.platesPerSide.length === 0 ? (
+                <div className="text-xs text-[var(--muted-text)] font-mono italic px-4">
+                  No plates — collar only
                 </div>
-              ))}
+              ) : (
+                result.platesPerSide.flatMap(({ plate, count }, pIdx) =>
+                  Array.from({ length: count }).map((_, cIdx) => {
+                    // Height and colors according to plate weight
+                    const isBig = plate >= 20 || (unit === 'lb' && plate >= 45);
+                    const isMed = (plate >= 10 && plate < 20) || (unit === 'lb' && plate >= 25 && plate < 45);
+                    const heightClass = isBig ? 'h-24 w-5' : isMed ? 'h-18 w-4' : 'h-12 w-3.5';
+                    const colorClass =
+                      plate === 25 || plate === 55
+                        ? 'bg-red-600 text-white'
+                        : plate === 20 || plate === 45
+                        ? 'bg-blue-600 text-white'
+                        : plate === 15 || plate === 35
+                        ? 'bg-amber-500 text-black'
+                        : plate === 10 || plate === 25
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-zinc-300 text-black';
+
+                    return (
+                      <div
+                        key={`${pIdx}-${cIdx}`}
+                        className={`${heightClass} ${colorClass} rounded-sm flex items-center justify-center shadow-md font-mono font-extrabold text-[10px] select-none border border-black/20`}
+                        title={`${plate} ${unit}`}
+                      >
+                        <span className="rotate-90 whitespace-nowrap">{plate}</span>
+                      </div>
+                    );
+                  })
+                )
+              )}
             </div>
-          )}
+
+            {/* Barbell Sleeve Tip */}
+            <div className="w-6 h-4 bg-zinc-500 rounded-r-md border border-zinc-600" />
+          </div>
         </div>
 
         <button

@@ -131,6 +131,24 @@ export default function TodayPage() {
           </span>
         </div>
 
+        {/* Coach Plateau / Deload / Long Break Notice */}
+        {recommendations.some((r) => r.isDeload || (r.breakDaysDetected && r.breakDaysDetected >= (settings.breakDaysThreshold || 14))) && (
+          <div className="mb-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+            <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+              <Flame className="w-4 h-4 text-amber-400" />
+              Coach Adaptation Notice
+            </div>
+            {recommendations
+              .filter((r) => r.isDeload || (r.breakDaysDetected && r.breakDaysDetected >= (settings.breakDaysThreshold || 14)))
+              .map((r) => (
+                <p key={r.exerciseId} className="text-xs text-[var(--foreground)] leading-relaxed">
+                  <strong className="text-amber-400 font-semibold">{EXERCISE_DEFINITIONS[r.exerciseId].name}:</strong>{' '}
+                  {r.explanation}
+                </p>
+              ))}
+          </div>
+        )}
+
         {/* Exercises list with recommendations */}
         <div className="space-y-3 mb-6">
           {recommendations.map((rec) => {
@@ -158,13 +176,13 @@ export default function TodayPage() {
                   >
                     <Layers className="w-4 h-4" />
                   </button>
-                  <div className="text-right">
-                    <div className="font-mono font-black text-lg text-[var(--foreground)]">
+                  <div className="text-right whitespace-nowrap">
+                    <span className="font-mono font-black text-xl text-[var(--foreground)]">
                       {rec.prescribedWeight}
-                    </div>
-                    <div className="text-[10px] text-[var(--muted-text)] uppercase font-mono">
+                    </span>
+                    <span className="text-xs text-[var(--muted-text)] uppercase font-mono ml-1 font-semibold">
                       {settings.units}
-                    </div>
+                    </span>
                   </div>
                 </div>
               </div>

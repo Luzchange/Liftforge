@@ -94,6 +94,44 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
               </button>
             </div>
 
+            {/* Quick preset for starting loads */}
+            <div className="bg-[var(--card-bg)] p-4 rounded-xl border border-[var(--card-border)] space-y-2">
+              <span className="text-xs font-bold text-[var(--muted-text)] uppercase tracking-wider">
+                Experience Level Preset
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const bar = unit === 'kg' ? 20 : 45;
+                    setStartingLoads({
+                      squat: bar,
+                      bench: bar,
+                      row: bar,
+                      ohp: bar,
+                      deadlift: unit === 'kg' ? 40 : 95,
+                    });
+                  }}
+                  className="p-2.5 rounded-lg border border-[var(--card-border)] bg-[var(--background)] text-xs font-bold hover:border-[var(--accent-lime)] text-[var(--foreground)]"
+                >
+                  Start With Just The Bar (Beginner)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (unit === 'kg') {
+                      setStartingLoads(DEFAULT_SETTINGS_KG.startingWeights);
+                    } else {
+                      setStartingLoads(DEFAULT_SETTINGS_LB.startingWeights);
+                    }
+                  }}
+                  className="p-2.5 rounded-lg border border-[var(--card-border)] bg-[var(--background)] text-xs font-bold hover:border-[var(--accent-lime)] text-[var(--foreground)]"
+                >
+                  Standard Recommended
+                </button>
+              </div>
+            </div>
+
             <div className="bg-[var(--card-bg)] p-4 rounded-xl border border-[var(--card-border)] space-y-3">
               <label className="block text-sm font-semibold text-[var(--foreground)]">
                 Olympic Barbell Weight ({unit})

@@ -120,6 +120,7 @@ export interface ActiveDraftWorkout {
     durationSeconds: number;
     pausedRemainingSeconds?: number;
   };
+  notes?: string;
 }
 
 export interface ProgressionRecommendation {

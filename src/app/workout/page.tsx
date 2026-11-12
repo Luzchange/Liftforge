@@ -149,6 +149,14 @@ function WorkoutContent() {
       durationSeconds: settings.restTimerDurationSec,
     };
 
+    // Auto-advance to next exercise if this was the last set of current exercise
+    if (setIndex === nextDraft.exercises[exIndex].workingSets.length - 1) {
+      const nextExIndex = exIndex + 1;
+      if (nextExIndex < nextDraft.exercises.length) {
+        setExpandedExercise(nextDraft.exercises[nextExIndex].exerciseId);
+      }
+    }
+
     await persistDraft(nextDraft);
   };
 
@@ -230,7 +238,7 @@ function WorkoutContent() {
   };
 
   // Finalize workout to historical tables and clear active draft
-  const handleConfirmFinish = async () => {
+  const handleConfirmFinish = async (notes?: string) => {
     const sessionId = `session-${Date.now()}`;
     const completedAt = Date.now();
 
@@ -241,7 +249,7 @@ function WorkoutContent() {
       status: 'completed',
       startedAt: draft.startedAt,
       completedAt,
-      notes: historyNotes,
+      notes: notes || historyNotes || undefined,
     };
 
     const instanceRecords: ExerciseInstance[] = [];
@@ -308,7 +316,7 @@ function WorkoutContent() {
       await db.activeDraft.delete('active_draft');
     });
 
-    router.push(`/history/${sessionId}`);
+    router.push(`/history/detail/?id=${sessionId}`);
   };
 
   const handleAbandon = async () => {

@@ -60,6 +60,32 @@ export async function importDatabaseFromJson(
 /**
  * Exports completed workout set history as formatted CSV.
  */
+export async function convertAllHistoricalUnits(targetUnit: 'kg' | 'lb'): Promise<void> {
+  const isTargetKg = targetUnit === 'kg';
+  const factor = isTargetKg ? 1 / 2.20462262185 : 2.20462262185;
+
+  await db.transaction('rw', db.sessions, db.exerciseInstances, db.loggedSets, async () => {
+    const instances = await db.exerciseInstances.toArray();
+    for (const inst of instances) {
+      inst.prescribedWeight = Math.round(inst.prescribedWeight * factor * 10) / 10;
+      if (inst.actualWeight !== undefined) {
+        inst.actualWeight = Math.round(inst.actualWeight * factor * 10) / 10;
+      }
+      await db.exerciseInstances.put(inst);
+    }
+
+    const sets = await db.loggedSets.toArray();
+    for (const s of sets) {
+      s.prescribedWeight = Math.round(s.prescribedWeight * factor * 10) / 10;
+      s.actualWeight = Math.round(s.actualWeight * factor * 10) / 10;
+      await db.loggedSets.put(s);
+    }
+  });
+}
+
+/**
+ * Exports completed workout set history as formatted CSV.
+ */
 export async function exportSetsToCsv(): Promise<string> {
   const sessions = await db.sessions.toArray();
   const instances = await db.exerciseInstances.toArray();

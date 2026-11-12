@@ -8,7 +8,7 @@ import { AlertTriangle, CheckCircle, ArrowLeft } from 'lucide-react';
 interface WorkoutReviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirmFinish: () => void;
+  onConfirmFinish: (notes?: string) => void;
   draft: ActiveDraftWorkout;
   unit: string;
 }
@@ -21,6 +21,7 @@ export function WorkoutReviewModal({
   unit,
 }: WorkoutReviewModalProps) {
   const [submitting, setSubmitting] = useState(false);
+  const [sessionNotes, setSessionNotes] = useState(draft.notes || '');
 
   if (!isOpen) return null;
 
@@ -52,7 +53,7 @@ export function WorkoutReviewModal({
 
   const handleFinish = async () => {
     setSubmitting(true);
-    await onConfirmFinish();
+    await onConfirmFinish(sessionNotes);
     setSubmitting(false);
   };
 
@@ -137,6 +138,18 @@ export function WorkoutReviewModal({
               </div>
             );
           })}
+        </div>
+
+        {/* Session Notes */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold uppercase text-[var(--muted-text)]">Session Notes (Optional)</label>
+          <textarea
+            value={sessionNotes}
+            onChange={(e) => setSessionNotes(e.target.value)}
+            placeholder="E.g., Felt strong on squats, paused at bottom. Form was tight."
+            rows={2}
+            className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-xl p-3 text-xs text-[var(--foreground)] focus:border-[var(--accent-lime)] focus:outline-none"
+          />
         </div>
 
         <div className="flex gap-3 pt-2">

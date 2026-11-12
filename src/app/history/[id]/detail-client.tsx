@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { db } from '@/domain/db';
 import { WorkoutSession, ExerciseInstance, LoggedSet } from '@/domain/types';
 import { useSettings } from '@/context/SettingsContext';
@@ -10,6 +10,9 @@ import { ArrowLeft, Calendar, Clock, Check, X, Layers, AlertTriangle } from 'luc
 
 export default function SessionDetailPageClient({ id }: { id: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryId = searchParams.get('id');
+  const targetId = queryId || id;
   const { settings, loading } = useSettings();
 
   const [session, setSession] = useState<WorkoutSession | null>(null);
@@ -18,8 +21,11 @@ export default function SessionDetailPageClient({ id }: { id: string }) {
 
   useEffect(() => {
     const loadSession = async () => {
-      // In static export or direct navigation, if id matches a record, load it, otherwise check latest
-      let s = await db.sessions.get(id);
+      // If targetId is 'detail' or generic, look up queryId or fallback to the most recent session
+      let s: WorkoutSession | undefined = undefined;
+      if (targetId && targetId !== 'detail') {
+        s = await db.sessions.get(targetId);
+      }
       if (!s) {
         const all = await db.sessions.toArray();
         if (all.length > 0) {
@@ -39,7 +45,7 @@ export default function SessionDetailPageClient({ id }: { id: string }) {
     };
 
     loadSession();
-  }, [id, router]);
+  }, [targetId, router]);
 
   if (loading || !session || !settings) {
     return (
