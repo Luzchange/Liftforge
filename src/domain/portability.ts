@@ -1,65 +1,102 @@
-import { db, getOrCreateSettings } from './db';
+import { db } from './db';
 import { ExportData, validateImportJson } from './validation';
-import { LoggedSet } from './types';
+import { BUILT_IN_WORKOUTS, BUILT_IN_EXERCISES } from './types';
 
 /**
- * Generates versioned JSON export string of all user data.
+ * Serializes all tables into a single backup JSON object string.
  */
 export async function exportDatabaseToJson(): Promise<string> {
-  const settings = await getOrCreateSettings();
+  const settings = await db.settings.get('default');
+  if (!settings) {
+    throw new Error('No user settings found in database.');
+  }
+
   const sessions = await db.sessions.toArray();
   const exerciseInstances = await db.exerciseInstances.toArray();
   const loggedSets = await db.loggedSets.toArray();
+  const workouts = await db.workouts.toArray();
+  const customExercises = await db.customExercises.toArray();
 
   const exportPayload: ExportData = {
-    version: 'liftforge-v1',
+    version: 'liftforge-v2',
     exportedAt: Date.now(),
     settings,
     sessions,
     exerciseInstances,
     loggedSets,
+    workouts: workouts.length > 0 ? workouts : BUILT_IN_WORKOUTS,
+    customExercises: customExercises.length > 0 ? customExercises : Object.values(BUILT_IN_EXERCISES),
   };
 
   return JSON.stringify(exportPayload, null, 2);
 }
 
 /**
- * Imports JSON data into IndexedDB with duplicate resolution.
+ * Restores tables from a valid JSON backup.
  */
 export async function importDatabaseFromJson(
-  jsonStr: string,
-  mode: 'merge' | 'replace' = 'merge'
-): Promise<{ success: boolean; message: string; count?: number }> {
-  const validation = validateImportJson(jsonStr);
+  jsonString: string,
+  mode: 'replace' | 'merge' = 'merge'
+): Promise<{ success: boolean; message: string }> {
+  const validation = validateImportJson(jsonString);
+
   if (!validation.success) {
     return { success: false, message: validation.error };
   }
 
-  const { data } = validation;
+  const { settings, sessions, exerciseInstances, loggedSets, workouts, customExercises } = validation.data;
 
-  await db.transaction('rw', db.settings, db.sessions, db.exerciseInstances, db.loggedSets, async () => {
-    if (mode === 'replace') {
-      await db.sessions.clear();
-      await db.exerciseInstances.clear();
-      await db.loggedSets.clear();
-    }
+  try {
+    await db.transaction(
+      'rw',
+      [
+        db.settings,
+        db.sessions,
+        db.exerciseInstances,
+        db.loggedSets,
+        db.activeDraft,
+        db.workouts,
+        db.customExercises,
+      ],
+      async () => {
+        if (mode === 'replace') {
+          await db.sessions.clear();
+          await db.exerciseInstances.clear();
+          await db.loggedSets.clear();
+          await db.activeDraft.clear();
+          await db.workouts.clear();
+          await db.customExercises.clear();
+        }
 
-    await db.settings.put(data.settings);
-    await db.sessions.bulkPut(data.sessions);
-    await db.exerciseInstances.bulkPut(data.exerciseInstances);
-    await db.loggedSets.bulkPut(data.loggedSets);
-  });
+        await db.settings.put(settings);
+        await db.sessions.bulkPut(sessions);
+        await db.exerciseInstances.bulkPut(exerciseInstances);
+        await db.loggedSets.bulkPut(loggedSets);
 
-  return {
-    success: true,
-    message: `Successfully imported ${data.sessions.length} sessions and ${data.loggedSets.length} sets.`,
-    count: data.sessions.length,
-  };
+        if (workouts && workouts.length > 0) {
+          await db.workouts.bulkPut(workouts);
+        } else {
+          await db.workouts.bulkPut(BUILT_IN_WORKOUTS);
+        }
+
+        if (customExercises && customExercises.length > 0) {
+          await db.customExercises.bulkPut(customExercises);
+        }
+      }
+    );
+
+    return {
+      success: true,
+      message: `Successfully imported ${sessions.length} sessions and ${loggedSets.length} sets.`,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: `Database transaction error: ${(err as Error).message}`,
+    };
+  }
 }
 
-/**
- * Exports completed workout set history as formatted CSV.
- */
 export async function convertAllHistoricalUnits(targetUnit: 'kg' | 'lb'): Promise<void> {
   const isTargetKg = targetUnit === 'kg';
   const factor = isTargetKg ? 1 / 2.20462262185 : 2.20462262185;
@@ -91,54 +128,32 @@ export async function exportSetsToCsv(): Promise<string> {
   const instances = await db.exerciseInstances.toArray();
   const sets = await db.loggedSets.toArray();
 
-  const sessionMap = new Map(sessions.map((s) => [s.id, s]));
-  const instanceMap = new Map(instances.map((i) => [i.id, i]));
-
-  const headers = [
-    'SessionID',
-    'Date',
-    'Workout',
-    'Exercise',
-    'SetIndex',
-    'SetType',
-    'PrescribedWeight',
-    'PrescribedReps',
-    'ActualWeight',
-    'ActualReps',
-    'Status',
-    'IsDeload',
-    'PainFlag',
-  ];
-
-  const rows: string[] = [headers.join(',')];
+  const rows: string[] = [];
+  rows.push('session_id,session_type,date,exercise,set_index,set_type,prescribed_weight,actual_weight,prescribed_reps,actual_reps,status');
 
   for (const set of sets) {
-    const session = sessionMap.get(set.sessionId);
-    const instance = instanceMap.get(set.exerciseInstanceId);
+    const inst = instances.find((i) => i.id === set.exerciseInstanceId);
+    const sess = sessions.find((s) => s.id === set.sessionId);
 
-    const dateStr = session?.completedAt
-      ? new Date(session.completedAt).toISOString()
-      : session?.startedAt
-      ? new Date(session.startedAt).toISOString()
-      : '';
+    const dateStr = sess?.completedAt ? new Date(sess.completedAt).toISOString() : '';
+    const exName = inst?.exerciseName || set.exerciseId;
+    const sType = sess?.sessionType || '';
 
-    const row = [
-      set.sessionId,
-      dateStr,
-      session?.sessionType || '',
-      instance?.exerciseName || set.exerciseId,
-      set.setIndex,
-      set.setType,
-      set.prescribedWeight,
-      set.prescribedReps,
-      set.actualWeight,
-      set.actualReps,
-      set.status,
-      set.isDeload ? 'true' : 'false',
-      instance?.painFlag ? 'true' : 'false',
-    ];
-
-    rows.push(row.map((val) => `"${val}"`).join(','));
+    rows.push(
+      [
+        set.sessionId,
+        sType,
+        dateStr,
+        `"${exName}"`,
+        set.setIndex,
+        set.setType,
+        set.prescribedWeight,
+        set.actualWeight,
+        set.prescribedReps,
+        set.actualReps,
+        set.status,
+      ].join(',')
+    );
   }
 
   return rows.join('\n');

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useSettings } from '@/context/SettingsContext';
 import { WeightUnit, ExerciseId } from '@/domain/types';
 import { DEFAULT_SETTINGS_KG, DEFAULT_SETTINGS_LB } from '@/domain/plates';
+import { LiftForgeIcon } from '@/components/LiftForgeIcon';
 import { Dumbbell, ShieldCheck, ArrowRight } from 'lucide-react';
 
 export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
@@ -48,8 +49,8 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
     <div className="fixed inset-0 z-50 bg-[var(--background)] flex flex-col justify-between p-6 max-w-md mx-auto">
       <div>
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-[var(--accent-lime)] text-black flex items-center justify-center font-black text-xl shadow-[0_0_15px_var(--accent-lime-glow)]">
-            LF
+          <div className="w-12 h-12 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] flex items-center justify-center p-2 shadow-[0_0_15px_var(--accent-lime-glow)]">
+            <LiftForgeIcon className="w-8 h-8" />
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-[var(--foreground)]">LiftForge</h1>

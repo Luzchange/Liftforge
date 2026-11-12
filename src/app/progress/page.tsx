@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { db } from '@/domain/db';
-import { ExerciseId, ExerciseInstance, LoggedSet, WorkoutSession, EXERCISE_DEFINITIONS } from '@/domain/types';
+import { db, getAllExercises } from '@/domain/db';
+import { ExerciseInstance, LoggedSet, WorkoutSession, BUILT_IN_EXERCISES, ExerciseDefinition } from '@/domain/types';
 import { useSettings } from '@/context/SettingsContext';
 import {
   LineChart,
@@ -13,14 +13,23 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts';
-import { TrendingUp, Activity, Dumbbell } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 
 export default function ProgressPage() {
   const { settings, loading } = useSettings();
-  const [selectedExercise, setSelectedExercise] = useState<ExerciseId>('squat');
+  const [selectedExercise, setSelectedExercise] = useState<string>('squat');
+  const [availableExercises, setAvailableExercises] = useState<ExerciseDefinition[]>(Object.values(BUILT_IN_EXERCISES));
   const [chartData, setChartData] = useState<
     { date: string; weight: number; volume: number; est1rm: number }[]
   >([]);
+
+  useEffect(() => {
+    const loadExercises = async () => {
+      const eMap = await getAllExercises();
+      setAvailableExercises(Object.values(eMap));
+    };
+    loadExercises();
+  }, []);
 
   useEffect(() => {
     const loadProgress = async () => {
@@ -89,7 +98,10 @@ export default function ProgressPage() {
     );
   }
 
-  const exercises: ExerciseId[] = ['squat', 'bench', 'row', 'ohp', 'deadlift'];
+  const currentDef = availableExercises.find((e) => e.id === selectedExercise) || {
+    id: selectedExercise,
+    name: selectedExercise,
+  };
 
   return (
     <div className="max-w-md mx-auto p-4 pb-24 space-y-6">
@@ -100,19 +112,19 @@ export default function ProgressPage() {
         <h1 className="text-2xl font-black text-[var(--foreground)]">Strength Trajectory</h1>
       </div>
 
-      {/* Exercise Selector Buttons */}
+      {/* Exercise Selector Buttons (built-ins + customs) */}
       <div className="flex overflow-x-auto gap-2 pb-1 scrollbar-none">
-        {exercises.map((ex) => (
+        {availableExercises.map((ex) => (
           <button
-            key={ex}
-            onClick={() => setSelectedExercise(ex)}
+            key={ex.id}
+            onClick={() => setSelectedExercise(ex.id)}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all min-h-[44px] ${
-              selectedExercise === ex
+              selectedExercise === ex.id
                 ? 'bg-[var(--accent-lime)] text-black shadow-[0_0_12px_var(--accent-lime-glow)] font-black'
                 : 'bg-[var(--card-bg)] text-[var(--muted-text)] border border-[var(--card-border)] hover:text-[var(--foreground)]'
             }`}
           >
-            {EXERCISE_DEFINITIONS[ex].name}
+            {ex.name}
           </button>
         ))}
       </div>
@@ -122,7 +134,7 @@ export default function ProgressPage() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-bold text-base text-[var(--foreground)]">
-              {EXERCISE_DEFINITIONS[selectedExercise].name} Progression
+              {currentDef.name} Progression
             </h3>
             <p className="text-xs text-[var(--muted-text)]">Working weight & Estimated 1RM</p>
           </div>

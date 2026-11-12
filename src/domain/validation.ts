@@ -1,18 +1,36 @@
 import { z } from 'zod';
 
 export const WeightUnitSchema = z.enum(['kg', 'lb']);
-export const ExerciseIdSchema = z.enum(['squat', 'bench', 'row', 'ohp', 'deadlift']);
-export const SessionTypeSchema = z.enum(['A', 'B']);
+export const ExerciseIdSchema = z.string().min(1);
+export const SessionTypeSchema = z.string().min(1);
 export const SetTypeSchema = z.enum(['warmup', 'working']);
 export const SetStatusSchema = z.enum(['completed', 'missed', 'skipped']);
+
+export const ExerciseDefinitionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  defaultIncrement: z.number().positive(),
+  workingSets: z.number().int().positive(),
+  repsPerSet: z.number().int().positive(),
+  isPlateLoadable: z.boolean(),
+  defaultRestSec: z.number().optional(),
+  isCustom: z.boolean().optional(),
+});
+
+export const WorkoutDefinitionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  exerciseIds: z.array(z.string()),
+  isBuiltIn: z.boolean().optional(),
+});
 
 export const UserSettingsSchema = z.object({
   id: z.string(),
   units: WeightUnitSchema,
   barWeight: z.number().positive(),
   availablePlates: z.array(z.number().positive()),
-  increments: z.record(ExerciseIdSchema, z.number().positive()),
-  startingWeights: z.record(ExerciseIdSchema, z.number().positive()),
+  increments: z.record(z.string(), z.number().positive()),
+  startingWeights: z.record(z.string(), z.number().positive()),
   deloadPercentage: z.number().min(5).max(50),
   breakDaysThreshold: z.number().min(3).max(60),
   restTimerDurationSec: z.number().min(10).max(600),
@@ -20,12 +38,14 @@ export const UserSettingsSchema = z.object({
   soundEnabled: z.boolean(),
   onboardingCompleted: z.boolean(),
   updatedAt: z.number(),
+  activeWorkoutId: z.string().optional(),
 });
 
 export const WorkoutSessionSchema = z.object({
   id: z.string(),
   programVersion: z.string(),
   sessionType: SessionTypeSchema,
+  sessionName: z.string().optional(),
   status: z.enum(['completed', 'in_progress', 'abandoned']),
   startedAt: z.number(),
   completedAt: z.number().optional(),
@@ -64,18 +84,20 @@ export const LoggedSetSchema = z.object({
 });
 
 export const ExportDataSchema = z.object({
-  version: z.literal('liftforge-v1'),
+  version: z.enum(['liftforge-v1', 'liftforge-v2']),
   exportedAt: z.number(),
   settings: UserSettingsSchema,
   sessions: z.array(WorkoutSessionSchema),
   exerciseInstances: z.array(ExerciseInstanceSchema),
   loggedSets: z.array(LoggedSetSchema),
+  workouts: z.array(WorkoutDefinitionSchema).optional(),
+  customExercises: z.array(ExerciseDefinitionSchema).optional(),
 });
 
 export type ExportData = z.infer<typeof ExportDataSchema>;
 
 /**
- * Validates imported JSON string and parses into structured data.
+ * Validates imported JSON string and parses into structured data with backward compatibility.
  */
 export function validateImportJson(jsonStr: string): { success: true; data: ExportData } | { success: false; error: string } {
   try {

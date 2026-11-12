@@ -3,21 +3,37 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSettings } from '@/context/SettingsContext';
-import { db } from '@/domain/db';
-import { WorkoutSession, ExerciseInstance, LoggedSet, SessionType, ExerciseId, ProgressionRecommendation, EXERCISE_DEFINITIONS } from '@/domain/types';
+import { db, getAllWorkouts, getAllExercises } from '@/domain/db';
+import {
+  WorkoutSession,
+  ProgressionRecommendation,
+  WorkoutDefinition,
+  ExerciseDefinition,
+  BUILT_IN_EXERCISES,
+} from '@/domain/types';
 import { resolveNextSessionFromHistory } from '@/domain/program';
 import { analyzeExerciseHistory, calculateNextWeight } from '@/domain/progression';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { PlateCalculatorModal } from '@/components/PlateCalculatorModal';
-import { Play, Dumbbell, Calendar, AlertCircle, ArrowUpRight, Flame, Layers, Clock } from 'lucide-react';
+import { LiftForgeIcon } from '@/components/LiftForgeIcon';
+import {
+  Play,
+  ArrowUpRight,
+  Flame,
+  Layers,
+  Clock,
+  ChevronDown,
+} from 'lucide-react';
 
 export default function TodayPage() {
   const { settings, loading, reloadSettings } = useSettings();
   const [activeDraft, setActiveDraft] = useState<boolean>(false);
-  const [nextSessionType, setNextSessionType] = useState<SessionType>('A');
+  const [workouts, setWorkouts] = useState<WorkoutDefinition[]>([]);
+  const [allExercises, setAllExercises] = useState<Record<string, ExerciseDefinition>>(BUILT_IN_EXERCISES);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState<string>('A');
   const [lastSession, setLastSession] = useState<WorkoutSession | null>(null);
   const [recommendations, setRecommendations] = useState<ProgressionRecommendation[]>([]);
-  const [selectedCalc, setSelectedCalc] = useState<{ exercise: ExerciseId; weight: number } | null>(null);
+  const [selectedCalc, setSelectedCalc] = useState<{ exercise: string; weight: number } | null>(null);
 
   useEffect(() => {
     if (!settings || !settings.onboardingCompleted) return;
@@ -26,12 +42,17 @@ export default function TodayPage() {
       const draft = await db.activeDraft.get('active_draft');
       setActiveDraft(!!draft);
 
+      const wList = await getAllWorkouts();
+      const eMap = await getAllExercises();
+      setWorkouts(wList);
+      setAllExercises(eMap);
+
       const allSessions = await db.sessions.toArray();
       const allInstances = await db.exerciseInstances.toArray();
       const allSets = await db.loggedSets.toArray();
 
-      const nextType = resolveNextSessionFromHistory(allSessions);
-      setNextSessionType(nextType);
+      const nextId = resolveNextSessionFromHistory(allSessions, wList);
+      setSelectedWorkoutId(nextId);
 
       const completed = allSessions
         .filter((s) => s.status === 'completed' && s.completedAt)
@@ -41,21 +62,44 @@ export default function TodayPage() {
         setLastSession(completed[0]);
       }
 
-      // Calculate recommendations for the upcoming workout
-      const upcomingExercises: ExerciseId[] = nextType === 'A' ? ['squat', 'bench', 'row'] : ['squat', 'ohp', 'deadlift'];
-      const recs: ProgressionRecommendation[] = [];
-
-      for (const ex of upcomingExercises) {
-        const history = analyzeExerciseHistory(ex, allSessions, allInstances, allSets);
-        const rec = calculateNextWeight(ex, settings, history);
-        recs.push(rec);
+      // Compute progression recommendations for the chosen workout
+      const currentWorkout = wList.find((w) => w.id === nextId) || wList[0];
+      if (currentWorkout) {
+        const recs: ProgressionRecommendation[] = [];
+        for (const exId of currentWorkout.exerciseIds) {
+          const exDef = eMap[exId];
+          const history = analyzeExerciseHistory(exId, allSessions, allInstances, allSets);
+          const rec = calculateNextWeight(exId, settings, history, exDef);
+          recs.push(rec);
+        }
+        setRecommendations(recs);
       }
-
-      setRecommendations(recs);
     };
 
     loadData();
   }, [settings]);
+
+  // When user switches workout manually on Today screen
+  const handleSelectWorkout = async (wId: string) => {
+    setSelectedWorkoutId(wId);
+    if (!settings) return;
+
+    const allSessions = await db.sessions.toArray();
+    const allInstances = await db.exerciseInstances.toArray();
+    const allSets = await db.loggedSets.toArray();
+
+    const targetW = workouts.find((w) => w.id === wId);
+    if (targetW) {
+      const recs: ProgressionRecommendation[] = [];
+      for (const exId of targetW.exerciseIds) {
+        const exDef = allExercises[exId];
+        const history = analyzeExerciseHistory(exId, allSessions, allInstances, allSets);
+        const rec = calculateNextWeight(exId, settings, history, exDef);
+        recs.push(rec);
+      }
+      setRecommendations(recs);
+    }
+  };
 
   if (loading || !settings) {
     return (
@@ -71,16 +115,23 @@ export default function TodayPage() {
     return <OnboardingWizard onComplete={() => reloadSettings()} />;
   }
 
+  const currentWorkout = workouts.find((w) => w.id === selectedWorkoutId) || workouts[0];
+  const workoutDisplayName = currentWorkout?.name || `Workout ${selectedWorkoutId}`;
+
   return (
     <div className="max-w-md mx-auto p-4 pb-24 space-y-6 animate-in fade-in duration-150">
-      {/* Header */}
+      {/* Header with Custom Logo */}
       <div className="flex items-center justify-between pt-2">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[var(--accent-lime)] shadow-[0_0_8px_var(--accent-lime-glow)]" />
-            <h1 className="text-xl font-bold tracking-tight text-[var(--foreground)]">LiftForge</h1>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] flex items-center justify-center p-1.5 shadow-sm">
+              <LiftForgeIcon className="w-full h-full" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-[var(--foreground)]">LiftForge</h1>
+              <p className="text-[11px] text-[var(--muted-text)] font-medium -mt-0.5">Strength Progression System</p>
+            </div>
           </div>
-          <p className="text-xs text-[var(--muted-text)] font-medium mt-0.5">Strength Progression System</p>
         </div>
 
         <div className="bg-[var(--card-bg)] border border-[var(--card-border)] px-3 py-1.5 rounded-full text-xs font-mono font-semibold text-[var(--foreground)]">
@@ -122,37 +173,77 @@ export default function TodayPage() {
           </span>
         </div>
 
-        <div className="flex items-baseline justify-between mb-6">
-          <h2 className="text-3xl font-black tracking-tight text-[var(--foreground)]">
-            Workout {nextSessionType}
-          </h2>
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--card-hover)] text-[var(--muted-text)] border border-[var(--card-border)]">
-            Target 3x / week
-          </span>
+        {/* Workout Selector Title & Switcher */}
+        <div className="flex flex-col gap-1 mb-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-3xl font-black tracking-tight text-[var(--foreground)]">
+              {workoutDisplayName}
+            </h2>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--card-hover)] text-[var(--muted-text)] border border-[var(--card-border)]">
+              Rotation ({workouts.length})
+            </span>
+          </div>
+
+          {/* Quick manual workout picker */}
+          {workouts.length > 1 && (
+            <div className="flex items-center gap-1.5 mt-2 overflow-x-auto pb-1 scrollbar-none">
+              <span className="text-[11px] text-[var(--muted-text)] uppercase font-bold shrink-0">Switch:</span>
+              {workouts.map((w) => {
+                const isSelected = w.id === selectedWorkoutId;
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => handleSelectWorkout(w.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-colors min-h-[32px] ${
+                      isSelected
+                        ? 'bg-[var(--accent-lime)] text-black'
+                        : 'bg-[var(--background)] text-[var(--muted-text)] border border-[var(--card-border)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {w.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Coach Plateau / Deload / Long Break Notice */}
-        {recommendations.some((r) => r.isDeload || (r.breakDaysDetected && r.breakDaysDetected >= (settings.breakDaysThreshold || 14))) && (
+        {recommendations.some(
+          (r) => r.isDeload || (r.breakDaysDetected && r.breakDaysDetected >= (settings.breakDaysThreshold || 14))
+        ) && (
           <div className="mb-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
             <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
               <Flame className="w-4 h-4 text-amber-400" />
               Coach Adaptation Notice
             </div>
             {recommendations
-              .filter((r) => r.isDeload || (r.breakDaysDetected && r.breakDaysDetected >= (settings.breakDaysThreshold || 14)))
-              .map((r) => (
-                <p key={r.exerciseId} className="text-xs text-[var(--foreground)] leading-relaxed">
-                  <strong className="text-amber-400 font-semibold">{EXERCISE_DEFINITIONS[r.exerciseId].name}:</strong>{' '}
-                  {r.explanation}
-                </p>
-              ))}
+              .filter(
+                (r) => r.isDeload || (r.breakDaysDetected && r.breakDaysDetected >= (settings.breakDaysThreshold || 14))
+              )
+              .map((r) => {
+                const exDef = allExercises[r.exerciseId];
+                return (
+                  <p key={r.exerciseId} className="text-xs text-[var(--foreground)] leading-relaxed">
+                    <strong className="text-amber-400 font-semibold">{exDef?.name || r.exerciseId}:</strong>{' '}
+                    {r.explanation}
+                  </p>
+                );
+              })}
           </div>
         )}
 
         {/* Exercises list with recommendations */}
         <div className="space-y-3 mb-6">
           {recommendations.map((rec) => {
-            const def = EXERCISE_DEFINITIONS[rec.exerciseId];
+            const def = allExercises[rec.exerciseId] || {
+              id: rec.exerciseId,
+              name: rec.exerciseId,
+              workingSets: 5,
+              repsPerSet: 5,
+              isPlateLoadable: true,
+            };
             return (
               <div
                 key={rec.exerciseId}
@@ -169,13 +260,15 @@ export default function TodayPage() {
                 </div>
 
                 <div className="flex items-center gap-2 pl-2">
-                  <button
-                    onClick={() => setSelectedCalc({ exercise: rec.exerciseId, weight: rec.prescribedWeight })}
-                    className="p-2 text-[var(--muted-text)] hover:text-[var(--accent-lime)] rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center bg-[var(--card-bg)] border border-[var(--card-border)]"
-                    aria-label={`View plates for ${def.name}`}
-                  >
-                    <Layers className="w-4 h-4" />
-                  </button>
+                  {def.isPlateLoadable && (
+                    <button
+                      onClick={() => setSelectedCalc({ exercise: rec.exerciseId, weight: rec.prescribedWeight })}
+                      className="p-2 text-[var(--muted-text)] hover:text-[var(--accent-lime)] rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center bg-[var(--card-bg)] border border-[var(--card-border)]"
+                      aria-label={`View plates for ${def.name}`}
+                    >
+                      <Layers className="w-4 h-4" />
+                    </button>
+                  )}
                   <div className="text-right whitespace-nowrap">
                     <span className="font-mono font-black text-xl text-[var(--foreground)]">
                       {rec.prescribedWeight}
@@ -192,11 +285,11 @@ export default function TodayPage() {
 
         {/* Start Button */}
         <Link
-          href={`/workout?type=${nextSessionType}`}
+          href={`/workout?type=${selectedWorkoutId}`}
           className="w-full bg-[var(--accent-lime)] text-black font-extrabold py-4 rounded-2xl flex items-center justify-center gap-2 text-base shadow-[0_0_20px_var(--accent-lime-glow)] hover:opacity-95 transition-all min-h-[56px]"
         >
           <Play className="w-5 h-5 fill-current" />
-          {activeDraft ? 'Continue Workout' : `Start Workout ${nextSessionType}`}
+          {activeDraft ? 'Continue Workout' : `Start ${workoutDisplayName}`}
         </Link>
       </div>
 
@@ -213,10 +306,10 @@ export default function TodayPage() {
           </div>
           <div className="flex items-center justify-between">
             <div className="font-bold text-base text-[var(--foreground)]">
-              Workout {lastSession.sessionType} Completed
+              {lastSession.sessionName || `Workout ${lastSession.sessionType}`} Completed
             </div>
             <Link
-              href={`/history/${lastSession.id}`}
+              href={`/history/detail/?id=${lastSession.id}`}
               className="text-xs font-bold text-[var(--accent-lime)] flex items-center gap-1 hover:underline"
             >
               View Log
@@ -235,7 +328,7 @@ export default function TodayPage() {
           barWeight={settings.barWeight}
           availablePlates={settings.availablePlates}
           unit={settings.units}
-          exerciseName={EXERCISE_DEFINITIONS[selectedCalc.exercise].name}
+          exerciseName={allExercises[selectedCalc.exercise]?.name || selectedCalc.exercise}
         />
       )}
     </div>

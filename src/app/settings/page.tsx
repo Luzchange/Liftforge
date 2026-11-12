@@ -7,6 +7,7 @@ import { exportDatabaseToJson, importDatabaseFromJson, exportSetsToCsv, convertA
 import { seedDemoData } from '@/domain/demoData';
 import { clearDemoData, resetAllWorkoutData } from '@/domain/db';
 import { DEFAULT_PLATES_KG, DEFAULT_PLATES_LB } from '@/domain/plates';
+import { WorkoutBuilder } from '@/components/WorkoutBuilder';
 import {
   Download,
   Upload,
@@ -179,6 +180,9 @@ export default function SettingsPage() {
           LiftForge stores your workouts directly in your device&apos;s browser database. Browser-local storage is not a cloud backup. Always export a JSON backup periodically to preserve your training history.
         </div>
       </div>
+
+      {/* Workout Builder & Routine Rotation Section */}
+      <WorkoutBuilder onWorkoutsUpdated={() => reloadSettings()} units={settings.units} />
 
       {/* Theme & Audio Preferences */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-4 space-y-4">

@@ -1,19 +1,18 @@
 'use client';
 
-import React, { Suspense, useEffect, useState, useRef } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSettings } from '@/context/SettingsContext';
-import { db } from '@/domain/db';
+import { db, getAllWorkouts, getAllExercises } from '@/domain/db';
 import {
   ActiveDraftWorkout,
-  SessionType,
-  ExerciseId,
   SetStatus,
-  EXERCISE_DEFINITIONS,
-  PROGRAM_WORKOUTS,
+  BUILT_IN_EXERCISES,
   WorkoutSession,
   ExerciseInstance,
   LoggedSet,
+  WorkoutDefinition,
+  ExerciseDefinition,
 } from '@/domain/types';
 import { resolveNextSessionFromHistory } from '@/domain/program';
 import { analyzeExerciseHistory, calculateNextWeight } from '@/domain/progression';
@@ -23,14 +22,10 @@ import { PlateCalculatorModal } from '@/components/PlateCalculatorModal';
 import { WorkoutReviewModal } from '@/components/WorkoutReviewModal';
 import {
   Check,
-  X,
-  SkipForward,
-  RotateCcw,
   Layers,
   AlertTriangle,
   ChevronDown,
   ChevronUp,
-  Flame,
   CheckCircle2,
   Undo2,
 } from 'lucide-react';
@@ -41,10 +36,9 @@ function WorkoutContent() {
   const { settings, loading } = useSettings();
 
   const [draft, setDraft] = useState<ActiveDraftWorkout | null>(null);
-  const [activeTab, setActiveTab] = useState<'working' | 'warmup'>('working');
-  const [selectedPlateCalc, setSelectedPlateCalc] = useState<{ exercise: ExerciseId; weight: number } | null>(null);
+  const [selectedPlateCalc, setSelectedPlateCalc] = useState<{ exercise: string; weight: number } | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
-  const [expandedExercise, setExpandedExercise] = useState<ExerciseId | null>(null);
+  const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
   const [historyNotes, setHistoryNotes] = useState<string>('');
 
   // Initialize or load active draft
@@ -60,29 +54,45 @@ function WorkoutContent() {
         return;
       }
 
-      // 2. Otherwise generate new draft
+      // 2. Otherwise generate new draft based on target workout definition
+      const wList = await getAllWorkouts();
+      const eMap = await getAllExercises();
+
       const allSessions = await db.sessions.toArray();
       const allInstances = await db.exerciseInstances.toArray();
       const allSets = await db.loggedSets.toArray();
 
-      const typeParam = searchParams.get('type') as SessionType | null;
-      const targetSessionType: SessionType = typeParam || resolveNextSessionFromHistory(allSessions);
-      const exercisesForType = PROGRAM_WORKOUTS[targetSessionType];
+      const typeParam = searchParams.get('type');
+      const targetSessionId = typeParam || resolveNextSessionFromHistory(allSessions, wList);
+      const targetWorkout = wList.find((w) => w.id === targetSessionId) || wList[0];
 
-      const draftExercises = exercisesForType.map((exId) => {
-        const def = EXERCISE_DEFINITIONS[exId];
+      const draftExercises = targetWorkout.exerciseIds.map((exId) => {
+        const def = eMap[exId] || {
+          id: exId,
+          name: exId,
+          workingSets: 5,
+          repsPerSet: 5,
+          defaultIncrement: 2.5,
+          isPlateLoadable: true,
+        };
         const history = analyzeExerciseHistory(exId, allSessions, allInstances, allSets);
-        const rec = calculateNextWeight(exId, settings, history);
-        const warmups = calculateWarmupSets(rec.prescribedWeight, settings.barWeight, settings.availablePlates);
+        const rec = calculateNextWeight(exId, settings, history, def);
+
+        // Only plate-loadable exercises calculate barbell warmups
+        const warmups = def.isPlateLoadable
+          ? calculateWarmupSets(rec.prescribedWeight, settings.barWeight, settings.availablePlates)
+          : [];
 
         const instanceId = `inst-${Date.now()}-${exId}`;
 
         return {
           instanceId,
           exerciseId: exId,
+          exerciseName: def.name,
           prescribedWeight: rec.prescribedWeight,
           painFlag: false,
           userOverrideReason: '',
+          isPlateLoadable: def.isPlateLoadable,
           warmupSets: warmups.map((w, idx) => ({
             id: `warmup-${instanceId}-${idx + 1}`,
             setIndex: idx + 1,
@@ -90,7 +100,7 @@ function WorkoutContent() {
             actualWeight: w.weight,
             prescribedReps: w.reps,
             actualReps: w.reps,
-            status: 'completed' as SetStatus, // Warmups are optional/prepared
+            status: 'completed' as SetStatus,
           })),
           workingSets: Array.from({ length: def.workingSets }).map((_, idx) => ({
             id: `work-${instanceId}-${idx + 1}`,
@@ -99,21 +109,22 @@ function WorkoutContent() {
             actualWeight: rec.prescribedWeight,
             prescribedReps: def.repsPerSet,
             actualReps: def.repsPerSet,
-            status: 'skipped' as SetStatus, // default pending/unperformed
+            status: 'skipped' as SetStatus,
           })),
         };
       });
 
       const newDraft: ActiveDraftWorkout = {
         id: 'active_draft',
-        sessionType: targetSessionType,
+        sessionType: targetWorkout.id,
+        sessionName: targetWorkout.name,
         startedAt: Date.now(),
         exercises: draftExercises,
       };
 
       await db.activeDraft.put(newDraft);
       setDraft(newDraft);
-      setExpandedExercise(draftExercises[0].exerciseId);
+      setExpandedExercise(draftExercises[0]?.exerciseId || null);
     };
 
     initWorkout();
@@ -176,14 +187,6 @@ function WorkoutContent() {
     await persistDraft(nextDraft);
   };
 
-  const handleSetSkip = async (exIndex: number, setIndex: number) => {
-    const nextDraft = structuredClone(draft);
-    const set = nextDraft.exercises[exIndex].workingSets[setIndex];
-    set.status = 'skipped';
-    set.actualReps = 0;
-    await persistDraft(nextDraft);
-  };
-
   const handleSetReset = async (exIndex: number, setIndex: number) => {
     const nextDraft = structuredClone(draft);
     const set = nextDraft.exercises[exIndex].workingSets[setIndex];
@@ -194,22 +197,25 @@ function WorkoutContent() {
 
   const handleWeightOverride = async (exIndex: number, newWeight: number) => {
     const nextDraft = structuredClone(draft);
-    nextDraft.exercises[exIndex].prescribedWeight = newWeight;
-    nextDraft.exercises[exIndex].workingSets.forEach((s) => {
+    const ex = nextDraft.exercises[exIndex];
+    ex.prescribedWeight = newWeight;
+    ex.workingSets.forEach((s) => {
       s.prescribedWeight = newWeight;
       s.actualWeight = newWeight;
     });
-    // Recompute warmups
-    const newWarmups = calculateWarmupSets(newWeight, settings.barWeight, settings.availablePlates);
-    nextDraft.exercises[exIndex].warmupSets = newWarmups.map((w, idx) => ({
-      id: `warmup-${nextDraft.exercises[exIndex].instanceId}-${idx + 1}`,
-      setIndex: idx + 1,
-      prescribedWeight: w.weight,
-      actualWeight: w.weight,
-      prescribedReps: w.reps,
-      actualReps: w.reps,
-      status: 'completed',
-    }));
+
+    if (ex.isPlateLoadable) {
+      const newWarmups = calculateWarmupSets(newWeight, settings.barWeight, settings.availablePlates);
+      ex.warmupSets = newWarmups.map((w, idx) => ({
+        id: `warmup-${ex.instanceId}-${idx + 1}`,
+        setIndex: idx + 1,
+        prescribedWeight: w.weight,
+        actualWeight: w.weight,
+        prescribedReps: w.reps,
+        actualReps: w.reps,
+        status: 'completed',
+      }));
+    }
     await persistDraft(nextDraft);
   };
 
@@ -244,8 +250,9 @@ function WorkoutContent() {
 
     const sessionRecord: WorkoutSession = {
       id: sessionId,
-      programVersion: 'v1.0',
+      programVersion: 'v2.0',
       sessionType: draft.sessionType,
+      sessionName: draft.sessionName || `Workout ${draft.sessionType}`,
       status: 'completed',
       startedAt: draft.startedAt,
       completedAt,
@@ -256,16 +263,15 @@ function WorkoutContent() {
     const setRecords: LoggedSet[] = [];
 
     draft.exercises.forEach((ex) => {
-      const def = EXERCISE_DEFINITIONS[ex.exerciseId];
       const instId = `inst-${sessionId}-${ex.exerciseId}`;
 
       instanceRecords.push({
         id: instId,
         sessionId,
         exerciseId: ex.exerciseId,
-        exerciseName: def.name,
-        targetSets: def.workingSets,
-        targetReps: def.repsPerSet,
+        exerciseName: ex.exerciseName,
+        targetSets: ex.workingSets.length,
+        targetReps: ex.workingSets[0]?.prescribedReps || 5,
         prescribedWeight: ex.prescribedWeight,
         actualWeight: ex.prescribedWeight,
         painFlag: ex.painFlag,
@@ -326,6 +332,8 @@ function WorkoutContent() {
     }
   };
 
+  const workoutHeading = draft.sessionName || `Workout ${draft.sessionType}`;
+
   return (
     <div className="max-w-md mx-auto p-4 pb-28 space-y-4">
       {/* Top Header */}
@@ -334,7 +342,7 @@ function WorkoutContent() {
           <span className="text-xs font-bold text-[var(--accent-lime)] uppercase tracking-wider">
             Active Workout
           </span>
-          <h1 className="text-2xl font-black text-[var(--foreground)]">Workout {draft.sessionType}</h1>
+          <h1 className="text-2xl font-black text-[var(--foreground)]">{workoutHeading}</h1>
         </div>
 
         <div className="flex items-center gap-2">
@@ -365,9 +373,10 @@ function WorkoutContent() {
       {/* Exercise Accordions */}
       <div className="space-y-4">
         {draft.exercises.map((ex, exIndex) => {
-          const def = EXERCISE_DEFINITIONS[ex.exerciseId];
           const isExpanded = expandedExercise === ex.exerciseId;
           const completedCount = ex.workingSets.filter((s) => s.status === 'completed').length;
+          const targetSetsCount = ex.workingSets.length;
+          const targetRepsCount = ex.workingSets[0]?.prescribedReps || 5;
 
           return (
             <div
@@ -383,9 +392,9 @@ function WorkoutContent() {
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-base text-[var(--foreground)]">{def.name}</h3>
+                    <h3 className="font-bold text-base text-[var(--foreground)]">{ex.exerciseName}</h3>
                     <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-[var(--background)] border border-[var(--card-border)] text-[var(--muted-text)]">
-                      {def.workingSets}x{def.repsPerSet}
+                      {targetSetsCount}x{targetRepsCount}
                     </span>
                   </div>
 
@@ -395,23 +404,25 @@ function WorkoutContent() {
                     </span>
                     <span className="text-[var(--muted-text)]">·</span>
                     <span className="text-[var(--muted-text)]">
-                      {completedCount}/{def.workingSets} done
+                      {completedCount}/{targetSetsCount} done
                     </span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedPlateCalc({ exercise: ex.exerciseId, weight: ex.prescribedWeight });
-                    }}
-                    className="p-2 text-[var(--muted-text)] hover:text-[var(--foreground)] rounded-lg bg-[var(--background)] border border-[var(--card-border)] min-w-[40px] min-h-[40px] flex items-center justify-center"
-                    aria-label={`Show plates for ${def.name}`}
-                  >
-                    <Layers className="w-4 h-4" />
-                  </button>
+                  {ex.isPlateLoadable && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPlateCalc({ exercise: ex.exerciseId, weight: ex.prescribedWeight });
+                      }}
+                      className="p-2 text-[var(--muted-text)] hover:text-[var(--foreground)] rounded-lg bg-[var(--background)] border border-[var(--card-border)] min-w-[40px] min-h-[40px] flex items-center justify-center"
+                      aria-label={`Show plates for ${ex.exerciseName}`}
+                    >
+                      <Layers className="w-4 h-4" />
+                    </button>
+                  )}
                   {isExpanded ? (
                     <ChevronUp className="w-5 h-5 text-[var(--muted-text)]" />
                   ) : (
@@ -451,7 +462,7 @@ function WorkoutContent() {
                     </button>
                   </div>
 
-                  {/* Warmup Toggle / List */}
+                  {/* Warmup Toggle / List (if plate-loadable) */}
                   {ex.warmupSets.length > 0 && (
                     <div className="bg-[var(--background)] p-3 rounded-xl border border-[var(--card-border)]">
                       <div className="text-[11px] font-bold text-[var(--muted-text)] uppercase tracking-wider mb-2">
@@ -473,7 +484,7 @@ function WorkoutContent() {
                   {/* Working Sets Interactive Row (Thumb Friendly Mobile Optimization) */}
                   <div className="space-y-2.5">
                     <div className="text-xs font-bold text-[var(--muted-text)] uppercase tracking-wider">
-                      Working Sets (Target: {def.repsPerSet} reps)
+                      Working Sets (Target: {targetRepsCount} reps)
                     </div>
 
                     {ex.workingSets.map((ws, setIndex) => {
@@ -581,7 +592,7 @@ function WorkoutContent() {
           barWeight={settings.barWeight}
           availablePlates={settings.availablePlates}
           unit={settings.units}
-          exerciseName={EXERCISE_DEFINITIONS[selectedPlateCalc.exercise].name}
+          exerciseName={draft.exercises.find((e) => e.exerciseId === selectedPlateCalc.exercise)?.exerciseName || selectedPlateCalc.exercise}
         />
       )}
 

@@ -1,11 +1,11 @@
 import {
-  ExerciseId,
   UserSettings,
   WorkoutSession,
   ExerciseInstance,
   LoggedSet,
   ProgressionRecommendation,
-  EXERCISE_DEFINITIONS,
+  BUILT_IN_EXERCISES,
+  ExerciseDefinition,
 } from './types';
 import { roundToAchievableWeight, roundToPrecision } from './plates';
 
@@ -24,7 +24,7 @@ export interface ExerciseHistorySummary {
  * Evaluates the recent history for a given exercise to determine fail streak and previous stats.
  */
 export function analyzeExerciseHistory(
-  exerciseId: ExerciseId,
+  exerciseId: string,
   sessions: WorkoutSession[],
   exerciseInstances: ExerciseInstance[],
   loggedSets: LoggedSet[]
@@ -64,12 +64,9 @@ export function analyzeExerciseHistory(
         lastSessionDate = session.completedAt;
         lastPrescribedWeight = instance.prescribedWeight;
       }
-      // Note: Skipped sets do NOT count as failures per spec
       continue;
     }
 
-    // Evaluate failure on completed/attempted sets
-    // Warmups and skips do not count as failures
     const attemptedWorkingSets = workingSets.filter((s) => s.status !== 'skipped');
     const hasMissed = attemptedWorkingSets.some(
       (s) => s.status === 'missed' || s.actualReps < s.prescribedReps
@@ -89,7 +86,6 @@ export function analyzeExerciseHistory(
     if (hasMissed) {
       consecutiveFails += 1;
     } else {
-      // Successful session breaks the fail streak
       break;
     }
   }
@@ -107,129 +103,134 @@ export function analyzeExerciseHistory(
 }
 
 /**
- * Calculates the next recommended weight for an exercise based on pure rules.
+ * Calculates next load recommendation based on user rules and exercise history.
+ * Supports built-in exercises and custom user-defined exercises.
  */
 export function calculateNextWeight(
-  exerciseId: ExerciseId,
+  exerciseId: string,
   settings: UserSettings,
   history: ExerciseHistorySummary,
-  currentTimestamp: number = Date.now()
+  customDef?: ExerciseDefinition
 ): ProgressionRecommendation {
-  const defaultIncrement = settings.increments[exerciseId] ?? EXERCISE_DEFINITIONS[exerciseId].defaultIncrement;
+  const def = customDef || BUILT_IN_EXERCISES[exerciseId] || {
+    id: exerciseId,
+    name: exerciseId,
+    defaultIncrement: settings.increments[exerciseId] ?? (settings.units === 'kg' ? 2.5 : 5),
+    workingSets: 5,
+    repsPerSet: 5,
+    isPlateLoadable: true,
+  };
+
+  const increment = settings.increments[exerciseId] ?? def.defaultIncrement;
   const startingWeight = settings.startingWeights[exerciseId] ?? settings.barWeight;
 
-  // 1. Initial / First time
-  if (!history.lastPrescribedWeight) {
-    const rounded = roundToAchievableWeight(startingWeight, settings.barWeight, settings.availablePlates);
+  // Case 1: First time performing exercise
+  if (history.lastPrescribedWeight === 0) {
     return {
       exerciseId,
-      prescribedWeight: rounded,
-      previousWeight: startingWeight,
+      prescribedWeight: startingWeight,
+      previousWeight: 0,
       reason: 'initial',
-      explanation: `Starting load based on your setup (${rounded} ${settings.units}).`,
+      explanation: `Starting load initialized to ${startingWeight} ${settings.units}.`,
       consecutiveFails: 0,
       isDeload: false,
     };
   }
 
-  const prevWeight = history.lastPrescribedWeight;
+  const previousWeight = history.lastActualWeight || history.lastPrescribedWeight;
 
-  // 2. Training Break Check (e.g. 14+ days)
+  // Case 2: Break Detection (> threshold days)
   if (history.lastSessionDate) {
-    const daysElapsed = Math.floor((currentTimestamp - history.lastSessionDate) / (1000 * 60 * 60 * 24));
-    if (daysElapsed >= settings.breakDaysThreshold) {
-      // Suggest review / safety deload
-      const deloadWeight = roundToAchievableWeight(
-        prevWeight * (1 - settings.deloadPercentage / 100),
-        settings.barWeight,
-        settings.availablePlates
-      );
+    const daysSinceLast = (Date.now() - history.lastSessionDate) / (1000 * 60 * 60 * 24);
+    if (daysSinceLast >= settings.breakDaysThreshold) {
+      const conservativeWeight = def.isPlateLoadable
+        ? roundToAchievableWeight(previousWeight * 0.9, settings.barWeight, settings.availablePlates)
+        : roundToPrecision(previousWeight * 0.9, 1);
+
       return {
         exerciseId,
-        prescribedWeight: deloadWeight,
-        previousWeight: prevWeight,
+        prescribedWeight: conservativeWeight,
+        previousWeight,
         reason: 'break_review',
-        explanation: `${daysElapsed} days since your last ${EXERCISE_DEFINITIONS[exerciseId].name} session. A ${settings.deloadPercentage}% reset to ${deloadWeight} ${settings.units} is recommended for safe resumption.`,
+        explanation: `${Math.floor(daysSinceLast)} days since last logged session. Safe 10% load reduction recommended.`,
         consecutiveFails: 0,
         isDeload: true,
-        breakDaysDetected: daysElapsed,
+        breakDaysDetected: Math.floor(daysSinceLast),
       };
     }
   }
 
-  // 3. Pain Flag Check: Suppress automatic progression
+  // Case 3: Pain flag set on previous session
   if (history.hadPain) {
     return {
       exerciseId,
-      prescribedWeight: prevWeight,
-      previousWeight: prevWeight,
+      prescribedWeight: previousWeight,
+      previousWeight,
       reason: 'pain_suppressed',
-      explanation: `Discomfort or pain was noted in your previous session. Weight held at ${prevWeight} ${settings.units}. Adjust as needed or seek professional guidance.`,
+      explanation: 'Load held steady due to pain/discomfort flagged in previous session.',
       consecutiveFails: history.consecutiveFails,
       isDeload: false,
     };
   }
 
-  // 4. Skipped session: repeat load
-  if (history.wasSkipped) {
+  // Case 4: 3 Consecutive Failures -> Automatic Deload
+  if (history.consecutiveFails >= 3) {
+    const deloadFactor = 1 - settings.deloadPercentage / 100;
+    const targetDeload = previousWeight * deloadFactor;
+    const deloadWeight = def.isPlateLoadable
+      ? roundToAchievableWeight(targetDeload, settings.barWeight, settings.availablePlates)
+      : roundToPrecision(targetDeload, 1);
+
     return {
       exerciseId,
-      prescribedWeight: prevWeight,
-      previousWeight: prevWeight,
+      prescribedWeight: Math.max(def.isPlateLoadable ? settings.barWeight : 1, deloadWeight),
+      previousWeight,
+      reason: 'deload_3_fails',
+      explanation: `3 consecutive failed sessions. ${settings.deloadPercentage}% deload applied to break plateau.`,
+      consecutiveFails: 3,
+      isDeload: true,
+    };
+  }
+
+  // Case 5: 1 or 2 Failures -> Repeat previous weight
+  if (history.hadMissedReps) {
+    return {
+      exerciseId,
+      prescribedWeight: previousWeight,
+      previousWeight,
       reason: 'repeat_failure',
-      explanation: `Previous session was skipped. Repeating ${prevWeight} ${settings.units}.`,
+      explanation: `Failed to hit target reps (${history.consecutiveFails}/3 strikes). Repeating ${previousWeight} ${settings.units}.`,
+      consecutiveFails: history.consecutiveFails,
+      isDeload: false,
+    };
+  }
+
+  // Case 6: Successful 5x5 completed -> Progressive Overload Increment
+  if (history.allSetsCompleted) {
+    const rawTarget = previousWeight + increment;
+    const nextWeight = def.isPlateLoadable
+      ? roundToAchievableWeight(rawTarget, settings.barWeight, settings.availablePlates)
+      : roundToPrecision(rawTarget, 1);
+
+    return {
+      exerciseId,
+      prescribedWeight: nextWeight,
+      previousWeight,
+      reason: 'progression',
+      explanation: `All target sets completed! Increasing load by +${increment} ${settings.units}.`,
       consecutiveFails: 0,
       isDeload: false,
     };
   }
 
-  // 5. Check 3 Consecutive Failures -> 10% Deload
-  if (history.consecutiveFails >= 3) {
-    const rawDeload = prevWeight * (1 - settings.deloadPercentage / 100);
-    const deloadWeight = roundToAchievableWeight(
-      rawDeload,
-      settings.barWeight,
-      settings.availablePlates
-    );
-    return {
-      exerciseId,
-      prescribedWeight: deloadWeight,
-      previousWeight: prevWeight,
-      reason: 'deload_3_fails',
-      explanation: `3 consecutive sessions missed at ${prevWeight} ${settings.units}. Configured ${settings.deloadPercentage}% deload to ${deloadWeight} ${settings.units} to rebuild velocity and technique.`,
-      consecutiveFails: 0, // Reset fail counter after deload suggestion
-      isDeload: true,
-    };
-  }
-
-  // 6. Missed reps on last session (1 or 2 fails) -> Repeat load
-  if (history.hadMissedReps) {
-    return {
-      exerciseId,
-      prescribedWeight: prevWeight,
-      previousWeight: prevWeight,
-      reason: 'repeat_failure',
-      explanation: `Missed reps in the previous attempt (attempt ${history.consecutiveFails} of 3). Repeating ${prevWeight} ${settings.units}.`,
-      consecutiveFails: history.consecutiveFails,
-      isDeload: false,
-    };
-  }
-
-  // 7. Success! Increment weight
-  const nextTarget = prevWeight + defaultIncrement;
-  const achievableTarget = roundToAchievableWeight(
-    nextTarget,
-    settings.barWeight,
-    settings.availablePlates
-  );
-
+  // Fallback / default
   return {
     exerciseId,
-    prescribedWeight: achievableTarget,
-    previousWeight: prevWeight,
-    reason: 'progression',
-    explanation: `Completed all target reps! Increasing load by +${roundToPrecision(achievableTarget - prevWeight, 2)} ${settings.units} to ${achievableTarget} ${settings.units}.`,
-    consecutiveFails: 0,
+    prescribedWeight: previousWeight,
+    previousWeight,
+    reason: 'repeat_failure',
+    explanation: `Maintaining working load at ${previousWeight} ${settings.units}.`,
+    consecutiveFails: history.consecutiveFails,
     isDeload: false,
   };
 }
